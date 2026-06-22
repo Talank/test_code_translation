@@ -21,9 +21,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.10'
-    #   - name: Install xmllint (Ubuntu)
-    #     if: runner.os == 'Linux'
-    #     run: apt-get update && sudo apt-get install -y libxml2-utils
+      - name: show locale
+        run: local -a
       - name: Install dependencies
         working-directory: ./commons-validator/manual_translation
         run: |
