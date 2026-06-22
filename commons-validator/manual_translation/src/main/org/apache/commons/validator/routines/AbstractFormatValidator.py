@@ -179,7 +179,6 @@ class AbstractFormatValidator(ABC):
     def _parse(self, value: str, formatter: typing.Any) -> typing.Any:
 
         pos = 0
-        _initial_locale = locale.setlocale(locale.LC_ALL, None)
 
         currency_symbols = [
             "$",    # United States Dollar
@@ -225,7 +224,7 @@ class AbstractFormatValidator(ABC):
             conv = locale.localeconv()
             decimalPoint = conv['decimal_point']
             if decimalPoint in value:
-                locale.setlocale(locale.LC_ALL, _initial_locale)
+                locale.setlocale(locale.LC_ALL, "")
                 return None
 
     
@@ -248,15 +247,10 @@ class AbstractFormatValidator(ABC):
                 if ("$" in value or "(" in value) and "\u00A4" in formatter:
                     locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
                 elif "en_US" in locale.getlocale() and value[0] == "-":
-                    locale.setlocale(locale.LC_ALL, _initial_locale)
                     return None
-                try:
-                    locale_specific_currency_symbol = locale.currency(
-                        0, symbol=True, grouping=False
-                    )[0]
-                except (ValueError, locale.Error):
-                    locale.setlocale(locale.LC_ALL, _initial_locale)
-                    return None
+                locale_specific_currency_symbol = locale.currency(
+                    0, symbol=True, grouping=False
+                )[0]
                 if value and locale_specific_currency_symbol in value:
                     value = value.replace(
                         locale_specific_currency_symbol,
@@ -279,10 +273,10 @@ class AbstractFormatValidator(ABC):
                 try:
                     if not "##0.000" in formatter:
                         value = self.truncate_to_two_chars_after_last_dot(value)
-                    locale.setlocale(locale.LC_ALL, _initial_locale)
+                    locale.setlocale(locale.LC_ALL, "")
                     return Decimal(value)
                 except Exception:
-                    locale.setlocale(locale.LC_ALL, _initial_locale)
+                    locale.setlocale(locale.LC_ALL, "")
                     return None
 
 
@@ -358,21 +352,21 @@ class AbstractFormatValidator(ABC):
                         thousandsSep = "."
                     elif decimalPoint == ".":
                         thousandsSep = ","
-                locale.setlocale(locale.LC_ALL, _initial_locale)
+                locale.setlocale(locale.LC_ALL, "")
                 return Decimal(value.replace(thousandsSep, ""))
             pos = len(value)
         except ((ValueError, InvalidOperation)) as e:
-            locale.setlocale(locale.LC_ALL, _initial_locale)
+            locale.setlocale(locale.LC_ALL, "")
             return None
 
         if self.isStrict() and pos < len(value):
-            locale.setlocale(locale.LC_ALL, _initial_locale)
+            locale.setlocale(locale.LC_ALL, "")
             return None
 
         if parsedValue is not None:
             parsedValue = self._processParsedValue(parsedValue, formatter)
 
-        locale.setlocale(locale.LC_ALL, _initial_locale)
+        locale.setlocale(locale.LC_ALL, "")
         return parsedValue
 
     def indian_format(self, number: Decimal):

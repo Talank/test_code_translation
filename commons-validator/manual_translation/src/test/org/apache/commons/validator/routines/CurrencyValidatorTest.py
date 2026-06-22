@@ -190,7 +190,7 @@ class CurrencyValidatorTest(unittest.TestCase):
 
     def testValid(self) -> None:
 
-        origDefault = locale.setlocale(locale.LC_ALL, None)
+        origDefault = locale.getlocale()
         locale.setlocale(locale.LC_ALL, "en_GB.UTF-8")
 
         validator = CurrencyValidator.getInstance()

@@ -1,20 +1,19 @@
-# Cross-Platform Locale Fix Summary
+# Cross-Platform Test Failure Fixes
 
-## What Was Wrong
-
-Three categories of failures, each with a different root cause:
+Commit: `3e6f578` — five files changed, three categories of failure.
 
 ---
 
-### 1. Ubuntu: Missing locales (`en_GB.UTF-8`, `de_DE.UTF-8`)
+## 1. Ubuntu: Missing locales
 
 **File:** `.github/workflows/commons_validator.yml`
 
-**Problem:** Ubuntu GitHub Actions runners ship with only `C`, `C.utf8`, `POSIX`, and `en_US.utf8`
-by default. Tests that call `locale.setlocale(locale.LC_ALL, "en_GB.UTF-8")` raised
-`locale.Error: unsupported locale setting`.
+**Problem:** Ubuntu GitHub Actions runners only have `C`, `C.utf8`, `POSIX`, `en_US.utf8`
+by default. Tests calling `locale.setlocale(locale.LC_ALL, "en_GB.UTF-8")` or
+`"de_DE.UTF-8"` raised `locale.Error: unsupported locale setting`.
 
-**Fix (Linux-only YAML step):**
+**Fix:** Added a Linux-only CI step to install and generate the missing locales:
+
 ```yaml
 - name: Install locales (Linux)
   if: runner.os == 'Linux'
@@ -26,40 +25,42 @@ by default. Tests that call `locale.setlocale(locale.LC_ALL, "en_GB.UTF-8")` rai
 
 ---
 
-### 2. Windows: `locale.getdefaultlocale()` returns a non-restorable tuple
+## 2. Windows: `locale.getdefaultlocale()` returns an unrestorable tuple
 
 **Files:** `TimeValidatorTest.py`, `CurrencyValidatorTest.py`, `PercentValidatorTest.py`
 
 **Problem:** On Windows, `locale.getdefaultlocale()` returns a tuple like `('en_US', 'cp1252')`.
-Passing that tuple back to `locale.setlocale(locale.LC_ALL, original)` fails with
-`TypeError` on Windows because Windows expects a string, not a tuple.
+Passing that tuple back to `locale.setlocale(locale.LC_ALL, original)` in `tearDown`/cleanup
+raises a `TypeError` because `setlocale` expects a string on Windows.
 
-**Reusable pattern (pseudocode):**
-```
-# WRONG — breaks on Windows
-original = locale.getdefaultlocale()         # returns ('en_US', 'cp1252') on Windows
-...
-locale.setlocale(locale.LC_ALL, original)    # TypeError: tuple not accepted on Windows
+**Reusable pattern:**
+
+```python
+# WRONG — breaks on Windows (getdefaultlocale returns a tuple, not a string)
+original = locale.getdefaultlocale()
+# ... change locale ...
+locale.setlocale(locale.LC_ALL, original)   # TypeError on Windows
 
 # CORRECT — works on all platforms
-original = locale.setlocale(locale.LC_ALL, None)   # returns "en_US.UTF-8" (a string)
-...
-locale.setlocale(locale.LC_ALL, original)          # always works — string is accepted everywhere
+original = locale.setlocale(locale.LC_ALL, None)  # None = query without changing; returns a string
+# ... change locale ...
+locale.setlocale(locale.LC_ALL, original)          # always works
 ```
 
-`locale.setlocale(locale.LC_ALL, None)` queries the current locale **as a restorable string**
-without changing it. This string can always be passed back to `setlocale` to restore state.
+`locale.setlocale(locale.LC_ALL, None)` reads the current locale as a restorable string
+without changing anything. That string is always accepted back by `setlocale`.
 
 ---
 
-### 3. Windows: `time.tzset()` not available
+## 3. Windows: `time.tzset()` is Unix-only
 
 **File:** `TimeValidatorTest.py`
 
-**Problem:** `time.tzset()` is a Unix-only function that reloads the TZ environment variable.
-On Windows it does not exist, causing `AttributeError: module 'time' has no attribute 'tzset'`.
+**Problem:** `time.tzset()` reloads the `TZ` environment variable. It exists only on Unix.
+On Windows it raises `AttributeError: module 'time' has no attribute 'tzset'`.
 
 **Reusable pattern:**
+
 ```python
 # WRONG — crashes on Windows
 time.tzset()
@@ -71,41 +72,47 @@ if hasattr(time, 'tzset'):
 
 ---
 
-### 4. All platforms: `CurrencyValidatorTest.testPattern` — global locale state corruption
+## 4. All OSes: `CurrencyValidator._parse` used stale locale for fallback symbol lookup
 
-**File:** `AbstractFormatValidator.py` (`_parse` method)
+**File:** `CurrencyValidator.py`
 
-**Problem (root cause):** Every return path in `_parse` called:
+**Problem:** After `super()._parse(value, formatter, locale_)` returned `None`, the fallback
+called `locale.currency()` using whatever locale happened to be active at that point
+(the system default — `en_US` on macOS/Windows, `C` on Ubuntu). The correct locale for the
+fallback should be the one the caller intended (`locale_`), not the ambient global state.
+
+On macOS/Windows with system default `en_US`, the fallback found `$` in the test value
+`"$1,234.567"` even when the test had set `en_GB` as active, causing `isValid` to return
+`True` when it should have been `False`.
+
+**Fix:** Save the locale before `super()._parse` resets it, then explicitly set the correct
+locale for the symbol lookup:
+
 ```python
-locale.setlocale(locale.LC_ALL, "")   # resets to system default
-```
-`""` means "reset to OS default", which on Ubuntu runners is the `C` locale.
-- On Ubuntu: `locale.currency()` raises `ValueError` on `C` locale.
-- On macOS/Windows: after each validate call, the locale was reset to `en_US` (system default).
-  A subsequent `isValid1("$1,234.567", pattern)` — which should be **invalid** because the
-  active locale is `en_GB` — instead found `$` matched the (now-reset-to-en_US) system currency
-  symbol and returned `True` instead of `False`.
+def _parse(self, value, formatter, locale_):
+    saved_locale = locale.setlocale(locale.LC_ALL, None)   # save before super() resets it
+    parsedValue = super()._parse(value, formatter, locale_)
+    if parsedValue is not None or not isinstance(formatter, str):
+        return parsedValue
 
-**Fix:** Save and restore the locale that was active *when `_parse` was entered*:
-```python
-def _parse(self, value, formatter):
-    _initial_locale = locale.setlocale(locale.LC_ALL, None)  # save current locale
-    ...
-    # every return path now restores:
-    locale.setlocale(locale.LC_ALL, _initial_locale)
-    return result
+    effective_locale = locale_ if locale_ is not None else saved_locale
+    try:
+        locale.setlocale(locale.LC_ALL, effective_locale)
+        currency_symbol = locale.currency(0, symbol=True, grouping=False)[0]
+    except locale.Error:
+        return parsedValue   # locale not supported on this system (e.g. C locale on Ubuntu)
+    if value and currency_symbol in value:
+        parsedValue = value.replace(currency_symbol, "")
+    return parsedValue
 ```
-
-Additionally, `locale.currency()` is wrapped in `try/except (ValueError, locale.Error)` to
-handle the `C` locale gracefully if it is somehow still active.
 
 ---
 
-## Summary Table
+## Summary
 
-| Issue | OS | File changed | Pattern |
-|---|---|---|---|
-| Missing `en_GB`/`de_DE` locales | Ubuntu | `.github/workflows/commons_validator.yml` | Install locales in CI |
-| `getdefaultlocale()` returns tuple | Windows | `*Test.py` files | Use `setlocale(LC_ALL, None)` to save |
-| `time.tzset()` missing | Windows | `TimeValidatorTest.py` | Guard with `hasattr(time, 'tzset')` |
-| Locale state corrupted across calls | All | `AbstractFormatValidator.py` | Save/restore `_initial_locale` in `_parse` |
+| # | Problem | OS | File | Fix |
+|---|---|---|---|---|
+| 1 | `en_GB`/`de_DE` locales not installed | Ubuntu | `commons_validator.yml` | `locale-gen` in CI |
+| 2 | `getdefaultlocale()` returns tuple | Windows | `*ValidatorTest.py` (×3) | Use `setlocale(LC_ALL, None)` |
+| 3 | `time.tzset()` missing | Windows | `TimeValidatorTest.py` | Guard with `hasattr` |
+| 4 | Wrong locale used for currency fallback | All | `CurrencyValidator.py` | Save locale before `super()._parse` |
