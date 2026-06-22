@@ -41,7 +41,7 @@ class PercentValidatorTest(unittest.TestCase):
 
     def testValid(self) -> None:
 
-        origDefault = locale.getdefaultlocale()
+        origDefault = locale.setlocale(locale.LC_ALL, None)
         locale.setlocale(locale.LC_ALL, "en_GB.UTF-8")
 
         validator = PercentValidator.getInstance()

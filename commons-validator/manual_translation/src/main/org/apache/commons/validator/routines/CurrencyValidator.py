@@ -1,4 +1,5 @@
 from __future__ import annotations
+import locale
 import re
 import decimal
 import numbers
@@ -23,11 +24,17 @@ class CurrencyValidator(BigDecimalValidator):
 
     def _parse(self, value: str, formatter: typing.Any, locale_: typing.Any) -> typing.Any:
 
+        saved_locale = locale.setlocale(locale.LC_ALL, None)
         parsedValue = super()._parse(value, formatter, locale_)
         if parsedValue is not None or not isinstance(formatter, str):
             return parsedValue
 
-        currency_symbol = locale.currency(0, symbol=True, grouping=False)[0]
+        effective_locale = locale_ if locale_ is not None else saved_locale
+        try:
+            locale.setlocale(locale.LC_ALL, effective_locale)
+            currency_symbol = locale.currency(0, symbol=True, grouping=False)[0]
+        except locale.Error:
+            return parsedValue
         if value and currency_symbol in value:
             parsedValue = value.replace(currency_symbol, "")
         return parsedValue

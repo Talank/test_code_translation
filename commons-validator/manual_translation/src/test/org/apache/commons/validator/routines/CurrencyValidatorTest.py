@@ -44,7 +44,7 @@ class CurrencyValidatorTest(unittest.TestCase):
 
     def testPattern(self) -> None:
 
-        origDefault = locale.getdefaultlocale()
+        origDefault = locale.setlocale(locale.LC_ALL, None)
         locale.setlocale(locale.LC_ALL, "en_GB.UTF-8")
 
         validator = CurrencyValidator.getInstance()
@@ -126,7 +126,7 @@ class CurrencyValidatorTest(unittest.TestCase):
 
     def testIntegerValid(self) -> None:
 
-        origDefault = locale.getdefaultlocale()
+        origDefault = locale.setlocale(locale.LC_ALL, None)
         locale.setlocale(locale.LC_ALL, "en_GB.UTF-8")
 
         validator = CurrencyValidator.CurrencyValidator1()

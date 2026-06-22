@@ -101,7 +101,7 @@ class TimeValidatorTest(unittest.TestCase):
         self.__defaultZone = (
             datetime.datetime.now(datetime.timezone.utc).astimezone().tzinfo
         )
-        self.__origDefault = locale.getdefaultlocale()
+        self.__origDefault = locale.setlocale(locale.LC_ALL, None)
 
 
     @staticmethod
@@ -317,7 +317,8 @@ class TimeValidatorTest(unittest.TestCase):
     def testTimeZone(self) -> None:
 
         locale.setlocale(locale.LC_ALL, "en_GB.UTF-8")
-        time.tzset()
+        if hasattr(time, 'tzset'):
+            time.tzset()
 
         result = None
 

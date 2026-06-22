@@ -23,6 +23,12 @@ jobs:
           python-version: '3.10'
       - name: show locale
         run: locale -a
+      - name: Install locales (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y locales
+          sudo locale-gen en_GB.UTF-8 de_DE.UTF-8
+          sudo update-locale
       - name: Install dependencies
         working-directory: ./commons-validator/manual_translation
         run: |
